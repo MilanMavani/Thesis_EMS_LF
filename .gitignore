@@ -1,0 +1,13 @@
+.vscode/
+Data/
+LF_data_Raw.csv
+outputs/
+
+# Python
+__pycache__/
+*.pyc
+
+# Environments
+.venv/
+venv/
+env/
