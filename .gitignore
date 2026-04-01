@@ -2,6 +2,7 @@
 Data/
 LF_data_Raw.csv
 outputs/
+JupyterNotebooks/artifacts/
 
 # Python
 __pycache__/
