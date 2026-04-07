@@ -32,9 +32,7 @@ def evaluate_profile_global(
     y_true: pd.DataFrame | np.ndarray,
     y_pred: pd.DataFrame | np.ndarray,
 ) -> dict[str, float]:
-    """
-    Evaluate profile forecast globally by flattening all horizons.
-    """
+
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
@@ -56,9 +54,7 @@ def evaluate_profile_by_horizon(
     y_true: pd.DataFrame | np.ndarray,
     y_pred: pd.DataFrame | np.ndarray,
 ) -> pd.DataFrame:
-    """
-    Evaluate error separately for each horizon step.
-    """
+   
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 

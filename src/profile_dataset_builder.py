@@ -19,38 +19,7 @@ def build_day_ahead_profile_dataset(
     drop_feature_nan: bool = False,
     drop_target_nan: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Build a day-ahead profile forecasting dataset.
 
-    Each row in X corresponds to one forecast issue timestamp
-    (default: 23:45), and each row in Y contains the next 96 target values.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input dataframe with DatetimeIndex and all required feature columns.
-    target_col : str
-        Name of the target column.
-    feature_cols : list[str]
-        Feature columns used as model input.
-    horizon_steps : int, default=96
-        Number of future 15-minute steps to predict.
-    issue_hour : int, default=23
-        Hour of forecast issue time.
-    issue_minute : int, default=45
-        Minute of forecast issue time.
-    drop_feature_nan : bool, default=False
-        If True, rows with NaNs in feature columns are removed.
-    drop_target_nan : bool, default=True
-        If True, rows with NaNs in future targets are removed.
-
-    Returns
-    -------
-    X : pd.DataFrame
-        Feature matrix with one row per issue time.
-    Y : pd.DataFrame
-        Multi-output target matrix with columns y_tplus_001 ... y_tplus_096.
-    """
     _validate_datetime_index(df)
 
     if target_col not in df.columns:

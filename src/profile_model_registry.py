@@ -11,9 +11,7 @@ except ImportError:
 
 
 def get_profile_models(random_state: int = 42) -> dict[str, object]:
-    """
-    Return multi-output models for profile forecasting.
-    """
+  
     models = {
         "multi_ridge": MultiOutputRegressor(
             Ridge(alpha=1.0)

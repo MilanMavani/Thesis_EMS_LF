@@ -25,9 +25,7 @@ def _save_profile_predictions(
     y_pred: np.ndarray,
     save_path: Path,
 ) -> None:
-    """
-    Save profile predictions in wide format.
-    """
+ 
     pred_df = pd.DataFrame(
         y_pred,
         index=y_true.index,
@@ -58,16 +56,7 @@ def run_profile_training_experiment(
     selected_models: list[str] | None = None,
     drop_feature_nan: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    """
-    Train and evaluate multi-output day-ahead profile forecasting models.
 
-    Returns
-    -------
-    results_df : pd.DataFrame
-        One summary row per model.
-    horizon_results : dict[str, pd.DataFrame]
-        Horizon-wise metrics per model.
-    """
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("DataFrame index must be DatetimeIndex")
 
