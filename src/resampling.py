@@ -35,12 +35,7 @@ def build_resample_rule_map(
     sum_cols: list[str] | None = None,
     default_numeric_rule: str = "mean",
 ) -> dict[str, str]:
-    """
-    Build per-column aggregation rules for resampling.
 
-    Priority:
-    explicit lists > default_numeric_rule
-    """
     out: dict[str, str] = {}
 
     mean_cols = mean_cols or []
@@ -76,12 +71,7 @@ def resample_timeseries(
     closed: str = "left",
     drop_all_nan_rows: bool = False,
 ) -> pd.DataFrame:
-    """
-    Resample a time-indexed dataframe using per-column aggregation rules.
-
-    Example target_freq:
-        '15min', '30min', '1h'
-    """
+  
     out = ensure_clean_datetime_index(df)
 
     missing_cols = [c for c in agg_map if c not in out.columns]
@@ -97,11 +87,7 @@ def resample_timeseries(
 
 
 def infer_default_rule_groups(df: pd.DataFrame) -> dict[str, list[str]]:
-    """
-    Optional helper:
-    make a first-pass grouping based on column names.
-    You can edit the returned groups in notebook before resampling.
-    """
+  
     mean_cols = []
     last_cols = []
 
