@@ -18,7 +18,7 @@ def get_profile_models(random_state: int = 42) -> dict[str, object]:
         ),
         "multi_random_forest": MultiOutputRegressor(
             RandomForestRegressor(
-                n_estimators=300,
+                n_estimators=1000,
                 max_depth=None,
                 min_samples_split=2,
                 min_samples_leaf=1,
@@ -31,7 +31,7 @@ def get_profile_models(random_state: int = 42) -> dict[str, object]:
     if XGBRegressor is not None:
         models["multi_xgboost"] = MultiOutputRegressor(
             XGBRegressor(
-                n_estimators=400,
+                n_estimators=1000,
                 max_depth=6,
                 learning_rate=0.05,
                 subsample=0.8,
