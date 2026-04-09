@@ -14,22 +14,10 @@ def add_day_ahead_history_features(
     *,
     target_col: str,
     freq_minutes: int = 15,
+    midday_start_hour: int = 11,
+    midday_end_hour: int = 14,
 ) -> pd.DataFrame:
-    """
-    Add historical daily summary features for day-ahead forecasting.
 
-    Features added:
-    - yesterday_mean
-    - yesterday_max
-    - yesterday_midday_max
-    - yesterday_peak_time_step
-    - lastweek_same_day_peak
-
-    Assumes:
-    - DatetimeIndex
-    - regular time series
-    - target_col exists
-    """
     _validate_datetime_index(df)
 
     if target_col not in df.columns:
@@ -38,81 +26,36 @@ def add_day_ahead_history_features(
     out = df.copy().sort_index()
     y = pd.to_numeric(out[target_col], errors="coerce")
 
-    # calendar helpers
-    out["_date"] = out.index.normalize()
-    out["_hour"] = out.index.hour
-    out["_minute"] = out.index.minute
+    date_key = out.index.normalize()
+    hour = out.index.hour
 
-    # step within day for 15-min data: 0..95
-    steps_per_day = int(24 * 60 / freq_minutes)
-    out["_step_in_day"] = ((out.index.hour * 60 + out.index.minute) // freq_minutes).astype(int)
+    midday_mask = (hour >= midday_start_hour) & (hour < midday_end_hour)
 
-    # -----------------------------
-    # Previous-day aggregate stats
-    # -----------------------------
-    daily_mean = y.groupby(out["_date"]).mean()
-    daily_max = y.groupby(out["_date"]).max()
+    daily_mean = y.groupby(date_key).mean()
+    daily_max = y.groupby(date_key).max()
+    daily_midday_max = y[midday_mask].groupby(date_key[midday_mask]).max()
 
-    # Midday window: 11:00 to 14:00
-    midday_mask = (out["_hour"] >= 11) & (out["_hour"] < 14)
-    midday_max = y[midday_mask].groupby(out.loc[midday_mask, "_date"]).max()
+    peak_idx = y.groupby(date_key).idxmax()
 
-    # Peak timing: step index of daily max
-    # returns step within day of the first occurrence of max
-    peak_idx = y.groupby(out["_date"]).idxmax()
-
-    peak_step_rows = []
+    peak_time_step = {}
     for day, ts in peak_idx.items():
         if pd.isna(ts):
-            peak_step_rows.append((day, np.nan))
+            peak_time_step[day] = np.nan
         else:
-            step = ((ts.hour * 60 + ts.minute) // freq_minutes)
-            peak_step_rows.append((day, float(step)))
+            peak_time_step[day] = (ts.hour * 60 + ts.minute) // freq_minutes
 
-    daily_peak_step = pd.Series(
-        data=[v for _, v in peak_step_rows],
-        index=[k for k, _ in peak_step_rows],
-        name="daily_peak_step",
-    )
+    daily_peak_time_step = pd.Series(peak_time_step)
 
-    daily_feature_df = pd.DataFrame({
-        "daily_mean": daily_mean,
-        "daily_max": daily_max,
-        "daily_midday_max": midday_max,
-        "daily_peak_step": daily_peak_step,
+    feature_df = pd.DataFrame({
+        f"{target_col}_yesterday_mean": daily_mean.shift(1),
+        f"{target_col}_yesterday_max": daily_max.shift(1),
+        f"{target_col}_yesterday_midday_max": daily_midday_max.shift(1),
+        f"{target_col}_yesterday_peak_time_step": daily_peak_time_step.shift(1),
+        f"{target_col}_lastweek_same_day_peak": daily_max.shift(7),
     })
 
-    # Shift by 1 day to become "yesterday_*"
-    daily_feature_df["yesterday_mean"] = daily_feature_df["daily_mean"].shift(1)
-    daily_feature_df["yesterday_max"] = daily_feature_df["daily_max"].shift(1)
-    daily_feature_df["yesterday_midday_max"] = daily_feature_df["daily_midday_max"].shift(1)
-    daily_feature_df["yesterday_peak_time_step"] = daily_feature_df["daily_peak_step"].shift(1)
-
-    # Last-week same-day peak = daily max from 7 days before
-    daily_feature_df["lastweek_same_day_peak"] = daily_feature_df["daily_max"].shift(7)
-
-    # Join daily features back to every timestamp of that day
-    keep_cols = [
-        "yesterday_mean",
-        "yesterday_max",
-        "yesterday_midday_max",
-        "yesterday_peak_time_step",
-        "lastweek_same_day_peak",
-    ]
-
-    out = out.join(daily_feature_df[keep_cols], on="_date")
-
-    # cleanup
-    out = out.drop(columns=["_date", "_hour", "_minute", "_step_in_day"])
+    out["_date_key_tmp"] = date_key
+    out = out.join(feature_df, on="_date_key_tmp")
+    out = out.drop(columns=["_date_key_tmp"])
 
     return out
-
-
-def get_day_ahead_history_feature_columns() -> list[str]:
-    return [
-        "yesterday_mean",
-        "yesterday_max",
-        "yesterday_midday_max",
-        "yesterday_peak_time_step",
-        "lastweek_same_day_peak",
-    ]

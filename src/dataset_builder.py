@@ -14,6 +14,7 @@ def build_target_df(
     include_lags: bool = True,
     include_rolls: bool = True,
     include_trends: bool = True,
+    include_history: bool = True,
 ) -> pd.DataFrame:
     out = df.copy()
 
@@ -23,6 +24,8 @@ def build_target_df(
     lag_cols = [c for c in out.columns if c.startswith(f"{target_col}_lag_")]
     roll_cols = [c for c in out.columns if c.startswith(f"{target_col}_roll_")]
     trend_cols = [c for c in out.columns if c.startswith(f"{target_col}_trend_")]
+    history_cols = [c for c in out.columns if c.startswith(f"{target_col}_yesterday_")]
+    history_cols += [c for c in out.columns if c.startswith(f"{target_col}_lastweek_")]
 
     selected_cols = [target_col] + [c for c in support_cols if c in out.columns]
 
@@ -34,10 +37,11 @@ def build_target_df(
         selected_cols += roll_cols
     if include_trends:
         selected_cols += trend_cols
+    if include_history:
+        selected_cols += history_cols
 
     selected_cols = [c for c in selected_cols if c in out.columns]
     return out[selected_cols].copy()
-
 
 def clean_target_df(
     df_target: pd.DataFrame,
