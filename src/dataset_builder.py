@@ -43,6 +43,7 @@ def build_target_df(
     selected_cols = [c for c in selected_cols if c in out.columns]
     return out[selected_cols].copy()
 
+
 def clean_target_df(
     df_target: pd.DataFrame,
     target_col: str,
@@ -72,6 +73,7 @@ def build_multiple_target_datasets(
     include_lags: bool = True,
     include_rolls: bool = True,
     include_trends: bool = True,
+    include_history: bool = True,
     drop_startup: bool = True,
     startup_rows: int = 288,
     drop_target_nan: bool = True,
@@ -88,6 +90,7 @@ def build_multiple_target_datasets(
             include_lags=include_lags,
             include_rolls=include_rolls,
             include_trends=include_trends,
+            include_history=include_history,
         )
 
         df_target = clean_target_df(

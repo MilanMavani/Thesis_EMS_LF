@@ -17,7 +17,6 @@ def add_day_ahead_history_features(
     midday_start_hour: int = 11,
     midday_end_hour: int = 14,
 ) -> pd.DataFrame:
-
     _validate_datetime_index(df)
 
     if target_col not in df.columns:
@@ -28,23 +27,22 @@ def add_day_ahead_history_features(
 
     date_key = out.index.normalize()
     hour = out.index.hour
-
     midday_mask = (hour >= midday_start_hour) & (hour < midday_end_hour)
 
     daily_mean = y.groupby(date_key).mean()
     daily_max = y.groupby(date_key).max()
     daily_midday_max = y[midday_mask].groupby(date_key[midday_mask]).max()
 
-    peak_idx = y.groupby(date_key).idxmax()
+    # Safe peak time calculation: returns NaN for all-NaN days
+    def _safe_peak_time_step(day_series: pd.Series) -> float:
+        day_series = day_series.dropna()
+        if day_series.empty:
+            return np.nan
 
-    peak_time_step = {}
-    for day, ts in peak_idx.items():
-        if pd.isna(ts):
-            peak_time_step[day] = np.nan
-        else:
-            peak_time_step[day] = (ts.hour * 60 + ts.minute) // freq_minutes
+        peak_ts = day_series.idxmax()
+        return float((peak_ts.hour * 60 + peak_ts.minute) // freq_minutes)
 
-    daily_peak_time_step = pd.Series(peak_time_step)
+    daily_peak_time_step = y.groupby(date_key).apply(_safe_peak_time_step)
 
     feature_df = pd.DataFrame({
         f"{target_col}_yesterday_mean": daily_mean.shift(1),
