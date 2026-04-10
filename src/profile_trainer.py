@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 import json
-
-import numpy as np
 import pandas as pd
 
 from src.config import RANDOM_STATE
@@ -12,32 +9,15 @@ from src.splitter import time_based_split
 from src.profile_dataset_builder import build_day_ahead_profile_dataset
 from src.profile_model_registry import get_profile_models
 from src.profile_metrics import evaluate_profile_global, evaluate_profile_by_horizon
-
-
-def _ensure_output_dir(path: str | Path) -> Path:
-    out = Path(path)
-    out.mkdir(parents=True, exist_ok=True)
-    return out
-
-
-def _save_profile_predictions(
-    y_true: pd.DataFrame,
-    y_pred: np.ndarray,
-    save_path: Path,
-) -> None:
- 
-    pred_df = pd.DataFrame(
-        y_pred,
-        index=y_true.index,
-        columns=y_true.columns,
-    )
-
-    true_df = y_true.copy()
-    true_df.columns = [f"{c}_true" for c in true_df.columns]
-    pred_df.columns = [f"{c}_pred" for c in pred_df.columns]
-
-    out = pd.concat([true_df, pred_df], axis=1)
-    out.to_csv(save_path, index=True)
+from src.profile_tracker import (
+    generate_run_id,
+    save_profile_predictions,
+    save_profile_horizon_metrics,
+    save_profile_model,
+    save_profile_model_params,
+    save_profile_plot,
+    append_profile_experiment_log,
+)
 
 
 def run_profile_training_experiment(
@@ -46,7 +26,7 @@ def run_profile_training_experiment(
     target_col: str,
     feature_cols: list[str],
     dataset_name: str,
-    output_dir: str | Path,
+    feature_set_name: str = "default_features",
     horizon_steps: int = 96,
     issue_hour: int = 23,
     issue_minute: int = 45,
@@ -56,7 +36,6 @@ def run_profile_training_experiment(
     selected_models: list[str] | None = None,
     drop_feature_nan: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("DataFrame index must be DatetimeIndex")
 
@@ -101,16 +80,13 @@ def run_profile_training_experiment(
     if not models:
         raise ValueError("No models selected after filtering.")
 
-    output_dir = _ensure_output_dir(output_dir)
-    predictions_dir = _ensure_output_dir(output_dir / "predictions")
-    horizon_dir = _ensure_output_dir(output_dir / "horizon_metrics")
-
     results = []
     horizon_results = {}
 
     for model_name, model in models.items():
         print(f"Training {model_name} for day-ahead profile forecasting: {target_col}")
 
+        run_id = generate_run_id()
         start_time = datetime.now()
 
         model.fit(X_train, Y_train)
@@ -124,16 +100,51 @@ def run_profile_training_experiment(
         horizon_df = evaluate_profile_by_horizon(Y_test, test_pred)
         horizon_results[model_name] = horizon_df
 
-        pred_path = predictions_dir / f"{model_name}_{target_col}_profile_predictions.csv"
-        _save_profile_predictions(Y_test, test_pred, pred_path)
+        pred_path = save_profile_predictions(
+            run_id=run_id,
+            model_name=model_name,
+            target_col=target_col,
+            y_true=Y_test,
+            y_pred=test_pred,
+        )
 
-        horizon_path = horizon_dir / f"{model_name}_{target_col}_horizon_metrics.csv"
-        horizon_df.to_csv(horizon_path, index=False)
+        horizon_path = save_profile_horizon_metrics(
+            run_id=run_id,
+            model_name=model_name,
+            target_col=target_col,
+            horizon_df=horizon_df,
+        )
+
+        model_path = save_profile_model(
+            run_id=run_id,
+            model_name=model_name,
+            target_col=target_col,
+            model=model,
+        )
+
+        params_path = save_profile_model_params(
+            run_id=run_id,
+            model_name=model_name,
+            target_col=target_col,
+            model=model,
+        )
+
+        plot_path = save_profile_plot(
+            run_id=run_id,
+            model_name=model_name,
+            target_col=target_col,
+            y_true=Y_test,
+            y_pred=test_pred,
+            dataset_name=dataset_name,
+            sample_day_index=0,
+        )
 
         record = {
+            "run_id": run_id,
             "timestamp": start_time.strftime("%Y-%m-%d %H:%M:%S"),
             "task_type": "day_ahead_profile_forecasting",
             "dataset_name": dataset_name,
+            "feature_set_name": feature_set_name,
             "target": target_col,
             "model_name": model_name,
             "model_params": json.dumps(model.get_params(), default=str),
@@ -158,13 +169,15 @@ def run_profile_training_experiment(
             "test_MAPE": test_global["MAPE"],
             "test_sMAPE": test_global["sMAPE"],
             "test_R2": test_global["R2"],
+            "model_path": str(model_path),
             "prediction_path": str(pred_path),
             "horizon_metrics_path": str(horizon_path),
+            "plot_path": str(plot_path),
+            "params_path": str(params_path),
         }
 
+        append_profile_experiment_log(record)
         results.append(record)
 
     results_df = pd.DataFrame(results)
-    results_df.to_csv(output_dir / f"profile_results_{target_col}.csv", index=False)
-
     return results_df, horizon_results

@@ -50,3 +50,23 @@ TARGET_COLUMNS = [
 
 # Default experiment log file
 EXPERIMENT_LOG_FILE = LOGS_DIR / "experiment_log.csv"
+
+# Profile forecasting output directories
+PROFILE_OUTPUTS_DIR = OUTPUTS_DIR / "profile_forecasting"
+PROFILE_PREDICTIONS_DIR = PROFILE_OUTPUTS_DIR / "predictions"
+PROFILE_HORIZON_METRICS_DIR = PROFILE_OUTPUTS_DIR / "horizon_metrics"
+PROFILE_MODELS_DIR = PROFILE_OUTPUTS_DIR / "models"
+PROFILE_LOGS_DIR = PROFILE_OUTPUTS_DIR / "logs"
+PROFILE_FIGURES_DIR = PROFILE_OUTPUTS_DIR / "figures"
+
+for path in [
+    PROFILE_OUTPUTS_DIR,
+    PROFILE_PREDICTIONS_DIR,
+    PROFILE_HORIZON_METRICS_DIR,
+    PROFILE_MODELS_DIR,
+    PROFILE_LOGS_DIR,
+    PROFILE_FIGURES_DIR,
+]:
+    path.mkdir(parents=True, exist_ok=True)
+
+PROFILE_EXPERIMENT_LOG_FILE = PROFILE_LOGS_DIR / "profile_experiment_log.csv"

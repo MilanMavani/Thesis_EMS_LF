@@ -13,10 +13,10 @@ except ImportError:
 def get_profile_models(random_state: int = 42) -> dict[str, object]:
   
     models = {
-        "multi_ridge": MultiOutputRegressor(
+        "ridge": MultiOutputRegressor(
             Ridge(alpha=1.0)
         ),
-        "multi_random_forest": MultiOutputRegressor(
+        "random_forest": MultiOutputRegressor(
             RandomForestRegressor(
                 n_estimators=1000,
                 max_depth=None,
@@ -29,7 +29,7 @@ def get_profile_models(random_state: int = 42) -> dict[str, object]:
     }
 
     if XGBRegressor is not None:
-        models["multi_xgboost"] = MultiOutputRegressor(
+        models["xgboost"] = MultiOutputRegressor(
             XGBRegressor(
                 n_estimators=1000,
                 max_depth=6,
