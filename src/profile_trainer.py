@@ -7,7 +7,10 @@ import pandas as pd
 from src.config import RANDOM_STATE
 from src.splitter import time_based_split
 from src.profile_dataset_builder import build_day_ahead_profile_dataset
-from src.profile_model_registry import get_profile_models
+from src.profile_model_registry import (
+    get_profile_dense_models,
+    get_profile_nan_friendly_models,
+)
 from src.profile_metrics import evaluate_profile_global, evaluate_profile_by_horizon
 from src.profile_tracker import (
     generate_run_id,
@@ -35,7 +38,16 @@ def run_profile_training_experiment(
     test_ratio: float = 0.15,
     selected_models: list[str] | None = None,
     drop_feature_nan: bool = False,
+    data_mode: str = "auto",
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """
+    Train and evaluate multi-output day-ahead profile forecasting models.
+
+    data_mode:
+        - "auto"  -> detect if feature NaNs exist, then switch to "NaNs" or "dense"
+        - "dense" -> use dense models, drop rows with feature NaNs
+        - "NaNs"  -> use NaN-friendly models, keep feature NaNs
+    """
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("DataFrame index must be DatetimeIndex")
 
@@ -72,7 +84,35 @@ def run_profile_training_experiment(
     X_test = test_df[feature_cols].copy()
     Y_test = test_df[y_cols].copy()
 
-    models = get_profile_models(random_state=RANDOM_STATE)
+    if data_mode == "auto":
+        has_x_nans = (
+            X_train.isna().any().any()
+            or X_val.isna().any().any()
+            or X_test.isna().any().any()
+        )
+        data_mode = "NaNs" if has_x_nans else "dense"
+
+    if data_mode == "dense":
+        train_mask = X_train.notna().all(axis=1)
+        val_mask = X_val.notna().all(axis=1)
+        test_mask = X_test.notna().all(axis=1)
+
+        X_train = X_train.loc[train_mask]
+        Y_train = Y_train.loc[train_mask]
+
+        X_val = X_val.loc[val_mask]
+        Y_val = Y_val.loc[val_mask]
+
+        X_test = X_test.loc[test_mask]
+        Y_test = Y_test.loc[test_mask]
+
+        models = get_profile_dense_models(random_state=RANDOM_STATE)
+
+    elif data_mode == "NaNs":
+        models = get_profile_nan_friendly_models(random_state=RANDOM_STATE)
+
+    else:
+        raise ValueError("data_mode must be one of: 'auto', 'dense', 'NaNs'")
 
     if selected_models is not None:
         models = {k: v for k, v in models.items() if k in selected_models}
@@ -80,11 +120,17 @@ def run_profile_training_experiment(
     if not models:
         raise ValueError("No models selected after filtering.")
 
+    if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:
+        raise ValueError(
+            "One of train/val/test sets is empty after preprocessing. "
+            "Check split ratios, issue time filtering, and NaN handling."
+        )
+
     results = []
-    horizon_results = {}
+    horizon_results: dict[str, pd.DataFrame] = {}
 
     for model_name, model in models.items():
-        print(f"Training {model_name} for day-ahead profile forecasting: {target_col}")
+        print(f"Training {model_name} for day-ahead profile forecasting: {target_col} [{data_mode}]")
 
         run_id = generate_run_id()
         start_time = datetime.now()
@@ -136,6 +182,7 @@ def run_profile_training_experiment(
             y_true=Y_test,
             y_pred=test_pred,
             dataset_name=dataset_name,
+            feature_set_name=feature_set_name,
             sample_day_index=0,
         )
 
@@ -145,6 +192,7 @@ def run_profile_training_experiment(
             "task_type": "day_ahead_profile_forecasting",
             "dataset_name": dataset_name,
             "feature_set_name": feature_set_name,
+            "data_mode": data_mode,
             "target": target_col,
             "model_name": model_name,
             "model_params": json.dumps(model.get_params(), default=str),

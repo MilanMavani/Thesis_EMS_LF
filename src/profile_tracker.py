@@ -86,6 +86,7 @@ def save_profile_plot(
     y_true: pd.DataFrame,
     y_pred: np.ndarray,
     dataset_name: str | None = None,
+    feature_set_name: str | None = None,
     sample_day_index: int = 0,
 ) -> Path:
     pred_df = pd.DataFrame(y_pred, index=y_true.index, columns=y_true.columns)
@@ -107,12 +108,13 @@ def save_profile_plot(
     ax1 = plt.subplot(3, 1, 1)
     ax1.plot(x, true_row, label="Actual")
     ax1.plot(x, pred_row, label="Predicted")
+    label_text = feature_set_name
     ax1.set_title(
-        f"{model_name} - {target_col} - Day-ahead profile\n"
-        f"Issue time: {issue_time} [{dataset_name}]"
+        f"{model_name} - {target_col}\n"
+        f"Issue time: {issue_time} [{label_text}]"
     )
     ax1.set_xlabel("Horizon step (15-min ahead)")
-    ax1.set_ylabel(target_col)
+    ax1.set_ylabel(f"{target_col} (kW)")
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
@@ -122,7 +124,7 @@ def save_profile_plot(
     ax2.axhline(0, linestyle="--")
     ax2.set_title("Residuals by Horizon Step")
     ax2.set_xlabel("Horizon step (15-min ahead)")
-    ax2.set_ylabel("Residual")
+    ax2.set_ylabel("Residual (kW)")
     ax2.grid(True, alpha=0.3)
 
     # 3. Scatter plot
@@ -132,8 +134,8 @@ def save_profile_plot(
     max_val = max(np.nanmax(true_row), np.nanmax(pred_row))
     ax3.plot([min_val, max_val], [min_val, max_val], linestyle="--")
     ax3.set_title("Actual vs Predicted Scatter")
-    ax3.set_xlabel("Actual")
-    ax3.set_ylabel("Predicted")
+    ax3.set_xlabel("Actual (kW)")
+    ax3.set_ylabel("Predicted (kW)")
     ax3.grid(True, alpha=0.3)
 
     plt.tight_layout()
