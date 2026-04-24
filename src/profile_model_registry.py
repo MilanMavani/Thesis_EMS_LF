@@ -22,7 +22,7 @@ def get_profile_dense_models(random_state: int = 42) -> dict[str, object]:
         ),
         "random_forest": MultiOutputRegressor(
             RandomForestRegressor(
-                n_estimators=800,
+                n_estimators=500,
                 max_depth=20,
                 min_samples_split=10,
                 min_samples_leaf=4,
@@ -35,7 +35,7 @@ def get_profile_dense_models(random_state: int = 42) -> dict[str, object]:
     if XGBRegressor is not None:
         models["xgboost"] = MultiOutputRegressor(
             XGBRegressor(
-                n_estimators=1200,
+                n_estimators=500,
                 max_depth=8,
                 learning_rate=0.03,
                 subsample=0.9,
