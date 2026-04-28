@@ -38,7 +38,6 @@ def add_calendar_features(
         out["is_midday_weekday_peak"] = (
             (idx.hour >= 11) & (idx.hour < 14) & (idx.dayofweek < 5)
         ).astype(int)
-        out["slot_5min"] = idx.hour * 12 + idx.minute // 5
 
     return out
 
@@ -48,21 +47,17 @@ def get_calendar_feature_columns(*, include_extended: bool = False) -> list[str]
         "dayofweek",
         "is_weekend",
         "hour",
-        "month",
-        "dayofmonth",
-        "minute_of_day",
         "sin_tod",
         "cos_tod",
         "sin_dow",
-        "cos_dow",
-        "is_business_hours",
+        "cos_dow",  
     ]
 
+#"is_business_hours",  "minute_of_day","month",      "dayofmonth",
     if include_extended:
         cols += [
             "is_midday_peak_window",
             "is_midday_weekday_peak",
-            "slot_5min",
         ]
 
     return cols
