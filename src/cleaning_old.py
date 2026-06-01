@@ -61,33 +61,6 @@ DEFAULT_PRE_DROP_COLS = [
     "EL_TotActPwr_Ely_BoP",
 ]
 
-# Columns checked for isolated extreme logging/sensor errors.
-# This stage is intentionally separate from maintenance-event cleaning.
-DEFAULT_EXTREME_OUTLIER_COLS = [
-    "BU_TotActPwr_Academy",
-    "BU_TotActPwr_Tech_Room",
-    "BU_TotActPwr_SDB_EL_Substation",
-    "BU_PwrReq",
-    "BA_TotActPwr_BESS_AC_Panel1",
-    "BA_TotActPwr_BESS_AC_Panel2",
-]
-
-# Conservative hard limits for physically/logically impossible values.
-# Tune these after checking the real equipment ratings and historical maxima.
-# None means that side of the bound is disabled.
-DEFAULT_PHYSICAL_BOUNDS = {
-    "BU_TotActPwr_Academy": {"lower": 0.0, "upper": 1000.0},
-    "BU_TotActPwr_Tech_Room": {"lower": 0.0, "upper": 1000.0},
-    "BU_TotActPwr_SDB_EL_Substation": {"lower": 0.0, "upper": 2000.0},
-    "BU_PwrReq": {"lower": 0.0, "upper": 3000.0},
-
-    # BESS active power may be positive or negative depending on sign convention.
-    # Keep no hard bounds by default unless equipment ratings are confirmed.
-    "BA_TotActPwr_BESS_AC_Panel1": {"lower": None, "upper": None},
-    "BA_TotActPwr_BESS_AC_Panel2": {"lower": None, "upper": None},
-}
-
-
 
 # =========================================================
 # Load / prepare helpers
@@ -816,227 +789,6 @@ def run_spike_stage(
 
 
 # =========================================================
-# Extreme isolated logging/sensor error cleaning
-# =========================================================
-
-def true_run_lengths(mask: pd.Series) -> pd.Series:
-    """
-    Return the length of the current boolean run at each timestamp.
-
-    Example: False, True, True, False -> 1, 2, 2, 1.
-    This is used to retain only isolated outlier runs.
-    """
-    m = mask.fillna(False).astype(bool)
-    if m.empty:
-        return pd.Series(dtype=int, index=m.index)
-
-    group_id = (m != m.shift()).cumsum()
-    return m.groupby(group_id).transform("size").astype(int)
-
-
-def physical_bounds_mask(
-    x: pd.Series,
-    *,
-    lower: float | None = None,
-    upper: float | None = None,
-) -> pd.Series:
-    """
-    Flag values outside hard engineering/physical bounds.
-
-    Use this for impossible values, e.g. a 10,000 kW point in a building-load
-    signal whose expected range is far lower.
-    """
-    s = pd.to_numeric(x, errors="coerce")
-    mask = pd.Series(False, index=s.index)
-
-    if lower is not None:
-        mask |= s.lt(float(lower))
-    if upper is not None:
-        mask |= s.gt(float(upper))
-
-    return (mask & s.notna()).fillna(False)
-
-
-def robust_isolated_outlier_mask(
-    x: pd.Series,
-    *,
-    window: int = 97,
-    min_periods: int = 24,
-    z_thr: float = 12.0,
-    ratio_thr: float = 8.0,
-    min_abs_deviation: float = 50.0,
-    max_run_samples: int = 2,
-    eps: float = 1e-9,
-) -> pd.Series:
-    """
-    Conservative rolling median/MAD detector for isolated logging errors.
-
-    A point is flagged only if it is all of the following:
-    - very far from the local rolling median in robust z-score terms,
-    - very far in absolute units,
-    - much larger/smaller than the local baseline,
-    - part of a very short run, normally 1-2 samples.
-
-    This protects real operational peaks that persist for several samples.
-    """
-    s = pd.to_numeric(x, errors="coerce")
-
-    if s.notna().sum() < min_periods:
-        return pd.Series(False, index=s.index)
-
-    local_median = s.rolling(
-        window=window,
-        center=True,
-        min_periods=min_periods,
-    ).median()
-
-    abs_dev = (s - local_median).abs()
-    mad = abs_dev.rolling(
-        window=window,
-        center=True,
-        min_periods=min_periods,
-    ).median()
-
-    robust_scale = (1.4826 * mad).replace(0, np.nan)
-    robust_z = abs_dev / robust_scale
-
-    local_base = local_median.abs().clip(lower=eps)
-    deviation_ratio = abs_dev / local_base
-
-    candidate = (
-        s.notna()
-        & local_median.notna()
-        & robust_z.ge(float(z_thr))
-        & abs_dev.ge(float(min_abs_deviation))
-        & deviation_ratio.ge(float(ratio_thr))
-    ).fillna(False)
-
-    run_len = true_run_lengths(candidate)
-    isolated = candidate & run_len.le(int(max_run_samples))
-
-    return isolated.fillna(False)
-
-
-def extreme_outlier_filter_df(
-    df: pd.DataFrame,
-    *,
-    cols: list[str],
-    physical_bounds: dict[str, dict[str, float | None]] | None = None,
-    rolling_window: int = 97,
-    rolling_min_periods: int = 24,
-    z_thr: float = 12.0,
-    ratio_thr: float = 8.0,
-    min_abs_deviation: float = 50.0,
-    max_run_samples: int = 2,
-    replace: str = "nan",
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Remove obvious extreme logging/sensor errors column-wise.
-
-    Detection combines:
-    1. hard physical bounds, and
-    2. conservative isolated rolling median/MAD outlier detection.
-
-    Only the affected column value is set to NaN. Other sensors at the same
-    timestamp are kept.
-    """
-    if replace != "nan":
-        raise ValueError("extreme_outlier_filter_df currently supports replace='nan' only.")
-
-    d = df.copy()
-    d = ensure_datetime_index(d)
-
-    used_cols = [c for c in cols if c in d.columns]
-    physical_bounds = physical_bounds or {}
-
-    mask_df = pd.DataFrame(False, index=d.index, columns=used_cols)
-    rows = []
-
-    for col in used_cols:
-        x = pd.to_numeric(d[col], errors="coerce")
-
-        bounds = physical_bounds.get(col, {})
-        lower = bounds.get("lower", None)
-        upper = bounds.get("upper", None)
-
-        mask_bounds = physical_bounds_mask(x, lower=lower, upper=upper)
-        mask_robust = robust_isolated_outlier_mask(
-            x,
-            window=rolling_window,
-            min_periods=rolling_min_periods,
-            z_thr=z_thr,
-            ratio_thr=ratio_thr,
-            min_abs_deviation=min_abs_deviation,
-            max_run_samples=max_run_samples,
-        )
-
-        mask_total = (mask_bounds | mask_robust).fillna(False)
-        mask_df[col] = mask_total
-        d.loc[mask_total, col] = np.nan
-
-        non_nan_before = int(x.notna().sum())
-        removed_total = int(mask_total.sum())
-
-        rows.append({
-            "column": col,
-            "rows": int(len(x)),
-            "non_nan_before": non_nan_before,
-            "removed_total": removed_total,
-            "removed_by_physical_bounds": int(mask_bounds.sum()),
-            "removed_by_robust_isolated": int((mask_robust & ~mask_bounds).sum()),
-            "removed_%_non_nan": (
-                removed_total / non_nan_before * 100.0 if non_nan_before else np.nan
-            ),
-            "lower_bound": lower,
-            "upper_bound": upper,
-            "rolling_window": int(rolling_window),
-            "rolling_min_periods": int(rolling_min_periods),
-            "z_thr": float(z_thr),
-            "ratio_thr": float(ratio_thr),
-            "min_abs_deviation": float(min_abs_deviation),
-            "max_run_samples": int(max_run_samples),
-        })
-
-    summary = pd.DataFrame(rows)
-    if not summary.empty:
-        summary = summary.sort_values(
-            ["removed_total", "removed_%_non_nan"],
-            ascending=[False, False],
-        ).reset_index(drop=True)
-
-    return d, mask_df, summary
-
-
-def run_extreme_outlier_stage(
-    df_in: pd.DataFrame,
-    *,
-    extreme_cols: list[str],
-    physical_bounds: dict[str, dict[str, float | None]] | None = None,
-    rolling_window: int = 97,
-    rolling_min_periods: int = 24,
-    z_thr: float = 12.0,
-    ratio_thr: float = 8.0,
-    min_abs_deviation: float = 50.0,
-    max_run_samples: int = 2,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    High-level wrapper for the extreme isolated logging/sensor error stage.
-    """
-    return extreme_outlier_filter_df(
-        df_in,
-        cols=extreme_cols,
-        physical_bounds=physical_bounds,
-        rolling_window=rolling_window,
-        rolling_min_periods=rolling_min_periods,
-        z_thr=z_thr,
-        ratio_thr=ratio_thr,
-        min_abs_deviation=min_abs_deviation,
-        max_run_samples=max_run_samples,
-        replace="nan",
-    )
-
-
-# =========================================================
 # Additional rule-based cleaning
 # =========================================================
 
@@ -1114,8 +866,6 @@ def run_cleaning_pipeline(
     building_validate_cols: list[str] | None = None,
     elx_validate_cols: list[str] | None = None,
     spike_cols: list[str] | None = None,
-    extreme_outlier_cols: list[str] | None = None,
-    physical_bounds: dict[str, dict[str, float | None]] | None = None,
     final_drop_cols: list[str] | None = None,
 ) -> dict:
     d0 = ensure_datetime_index(df)
@@ -1134,10 +884,6 @@ def run_cleaning_pipeline(
         elx_validate_cols = ELX_VALIDATE_COLS
     if final_drop_cols is None:
         final_drop_cols = DEFAULT_DROP_COLS
-    if extreme_outlier_cols is None:
-        extreme_outlier_cols = DEFAULT_EXTREME_OUTLIER_COLS
-    if physical_bounds is None:
-        physical_bounds = DEFAULT_PHYSICAL_BOUNDS
 
     d1 = drop_columns_if_exist(d0, pre_drop_cols)
 
@@ -1186,23 +932,6 @@ def run_cleaning_pipeline(
     cleaned_cols = [c for c in cleaned_cols if c in d1.columns and c in df_event_clean.columns]
     d2 = apply_cleaned_columns(d1, df_event_clean, cleaned_cols)
 
-    # -----------------------------------------------------
-    # Extreme isolated logging/sensor error cleaning
-    # -----------------------------------------------------
-    extreme_outlier_cols = [c for c in extreme_outlier_cols if c in d2.columns]
-
-    d2_extreme, extreme_mask, extreme_summary = run_extreme_outlier_stage(
-        d2,
-        extreme_cols=extreme_outlier_cols,
-        physical_bounds=physical_bounds,
-        rolling_window=97,
-        rolling_min_periods=24,
-        z_thr=12.0,
-        ratio_thr=8.0,
-        min_abs_deviation=50.0,
-        max_run_samples=2,
-    )
-
     if spike_cols is None:
         spike_cols = [
             "PV_WS_Radiation",
@@ -1218,10 +947,10 @@ def run_cleaning_pipeline(
             "EL_TotActPwr_NitrogenUnit",
         ]
 
-    spike_cols = [c for c in spike_cols if c in d2_extreme.columns]
+    spike_cols = [c for c in spike_cols if c in d2.columns]
 
     d3, spike_mask, spike_summary, spike_table = run_spike_stage(
-        d2_extreme,
+        d2,
         spike_cols=spike_cols,
         q_jump=0.995,
         q_neighbor=0.90,
@@ -1245,14 +974,11 @@ def run_cleaning_pipeline(
         "df_input": d0,
         "df_after_pre_drop": d1,
         "df_event_clean": d2,
-        "df_after_extreme_outlier": d2_extreme,
         "df_after_spike": d3,
         "df_final": df_final,
         "events_all": events_all,
         "reports": reports,
         "debug": debug,
-        "extreme_mask": extreme_mask,
-        "extreme_summary": extreme_summary,
         "spike_mask": spike_mask,
         "spike_summary": spike_summary,
         "spike_table": spike_table,
@@ -1260,8 +986,6 @@ def run_cleaning_pipeline(
         "soc_invalid_mask": soc_invalid_mask,
         "cleaned_cols": cleaned_cols,
         "spike_cols": spike_cols,
-        "extreme_outlier_cols": extreme_outlier_cols,
-        "physical_bounds": physical_bounds,
     }
 
 

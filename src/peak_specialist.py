@@ -24,15 +24,7 @@ def get_horizon_steps_for_time_window(
     end_hour: int,
     samples_per_hour: int = 4,
 ) -> list[int]:
-    """
-    Convert a clock-time window into 1-based horizon steps.
 
-    Assumption:
-    y_tplus_001 corresponds to 00:00,
-    y_tplus_002 corresponds to 00:15,
-    ...
-    for a day-ahead forecast issued at 23:45.
-    """
     start_step = start_hour * samples_per_hour + 1
     end_step = end_hour * samples_per_hour
 
@@ -50,9 +42,7 @@ def select_horizon_columns(Y: pd.DataFrame, horizon_steps: list[int]) -> pd.Data
 
 
 def get_peak_xgboost_model(random_state: int = RANDOM_STATE):
-    """
-    Regularized XGBoost model for small-data peak-window forecasting.
-    """
+
     base_model = XGBRegressor(
         n_estimators=300,
         max_depth=3,
@@ -86,12 +76,7 @@ def run_peak_specialist_experiment(
     test_ratio: float = 0.15,
     drop_feature_nan: bool = False,
 ):
-    """
-    Train and evaluate a peak-window-only specialist model.
 
-    The model uses the same X features as the full-day model,
-    but the target Y contains only peak-window horizon columns.
-    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 

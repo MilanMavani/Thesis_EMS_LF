@@ -14,6 +14,11 @@ try:
 except ImportError:
     CatBoostRegressor = None
 
+try:
+    from lightgbm import LGBMRegressor
+except ImportError:
+    LGBMRegressor = None
+
 
 def get_profile_dense_models(random_state: int = 42) -> dict[str, object]:
     models = {
@@ -35,7 +40,7 @@ def get_profile_dense_models(random_state: int = 42) -> dict[str, object]:
     if XGBRegressor is not None:
         models["xgboost"] = MultiOutputRegressor(
             XGBRegressor(
-                n_estimators=300,
+                n_estimators=1000,
                 max_depth=3,
                 learning_rate=0.03,
                 subsample=0.9,
@@ -47,6 +52,7 @@ def get_profile_dense_models(random_state: int = 42) -> dict[str, object]:
                 objective="reg:squarederror",
                 random_state=random_state,
                 n_jobs=-1,
+                missing=float("nan"),
             )
         )
 
@@ -93,6 +99,39 @@ def get_profile_nan_friendly_models(random_state: int = 42) -> dict[str, object]
                 objective="reg:squarederror",
                 random_state=random_state,
                 n_jobs=-1,
+                missing=float("nan"),
+            )
+        )
+
+    if CatBoostRegressor is not None:
+        models["catboost"] = MultiOutputRegressor(
+            CatBoostRegressor(
+                iterations=1200,
+                learning_rate=0.03,
+                depth=8,
+                l2_leaf_reg=5,
+                loss_function="RMSE",
+                random_seed=random_state,
+                verbose=0,
+            )
+        )
+
+    if LGBMRegressor is not None:
+        models["lightgbm"] = MultiOutputRegressor(
+            LGBMRegressor(
+                n_estimators=1200,
+                learning_rate=0.03,
+                max_depth=-1,
+                num_leaves=31,
+                min_child_samples=20,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                reg_alpha=0.2,
+                reg_lambda=2.0,
+                objective="regression",
+                random_state=random_state,
+                n_jobs=-1,
+                verbose=-1,
             )
         )
 

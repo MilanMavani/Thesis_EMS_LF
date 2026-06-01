@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 
 from src.config import RANDOM_STATE
-from src.splitter import time_based_split, extract_xy
+from src.splitter import time_based_split, date_based_split
 from src.metrics import evaluate_regression
 from src.model_registry import get_nan_friendly_models, get_dense_models
 from src.tracker import (
@@ -67,6 +67,9 @@ def run_training_experiment(
     test_ratio: float = 0.10,
     selected_models: list[str] | None = None,
     data_mode: str = "auto",
+    split_method: str = "ratio",
+    train_end: str | None = None,
+    val_end: str | None = None,
 ):
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("DataFrame index must be DatetimeIndex")
@@ -83,12 +86,26 @@ def run_training_experiment(
         has_x_nans = df[feature_cols].isna().any().any()
         data_mode = "nan_friendly" if has_x_nans else "dense"
 
-    train_df, val_df, test_df = time_based_split(
-        df,
-        train_ratio=train_ratio,
-        val_ratio=val_ratio,
-        test_ratio=test_ratio,
-    )
+    if split_method == "ratio":
+        train_df, val_df, test_df = time_based_split(
+            df,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+        )
+
+    elif split_method == "date":
+        if train_end is None or val_end is None:
+            raise ValueError("For split_method='date', provide train_end and val_end.")
+
+        train_df, val_df, test_df = date_based_split(
+            df,
+            train_end=train_end,
+            val_end=val_end,
+        )
+
+    else:
+        raise ValueError("split_method must be either 'ratio' or 'date'")
 
     if data_mode == "dense":
         train_df = train_df.dropna(subset=feature_cols)

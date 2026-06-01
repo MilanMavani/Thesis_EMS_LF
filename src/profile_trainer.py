@@ -5,7 +5,7 @@ import json
 import pandas as pd
 
 from src.config import RANDOM_STATE
-from src.splitter import time_based_split
+from src.splitter import time_based_split, date_based_split
 from src.profile_dataset_builder import build_day_ahead_profile_dataset
 from src.profile_model_registry import (
     get_profile_dense_models,
@@ -39,19 +39,25 @@ def run_profile_training_experiment(
     selected_models: list[str] | None = None,
     drop_feature_nan: bool = False,
     data_mode: str = "auto",
+    split_method: str = "ratio",
+    train_end: str | None = None,
+    val_end: str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    """
-    Train and evaluate multi-output day-ahead profile forecasting models.
-
-    data_mode:
-        - "auto"  -> detect if feature NaNs exist, then switch to "NaNs" or "dense"
-        - "dense" -> use dense models, drop rows with feature NaNs
-        - "NaNs"  -> use NaN-friendly models, keep feature NaNs
-    """
+   
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("DataFrame index must be DatetimeIndex")
 
     df = df.sort_index().copy()
+
+    missing_features = [c for c in feature_cols if c not in df.columns]
+    if missing_features:
+        raise KeyError(
+            "These feature columns are missing from df: "
+            f"{missing_features}"
+        )
+
+    if target_col not in df.columns:
+        raise KeyError(f"target_col '{target_col}' is missing from df.")
 
     X, Y = build_day_ahead_profile_dataset(
         df,
@@ -64,14 +70,34 @@ def run_profile_training_experiment(
         drop_target_nan=True,
     )
 
+    if len(X) == 0 or len(Y) == 0:
+        raise ValueError(
+            "Profile dataset is empty after build_day_ahead_profile_dataset(). "
+            "Check issue_hour, issue_minute, horizon_steps, target NaNs, and date range."
+        )
+
     dataset = pd.concat([X, Y], axis=1)
 
-    train_df, val_df, test_df = time_based_split(
-        dataset,
-        train_ratio=train_ratio,
-        val_ratio=val_ratio,
-        test_ratio=test_ratio,
-    )
+    if split_method == "ratio":
+        train_df, val_df, test_df = time_based_split(
+            dataset,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+        )
+
+    elif split_method == "date":
+        if train_end is None or val_end is None:
+            raise ValueError("For split_method='date', provide train_end and val_end.")
+
+        train_df, val_df, test_df = date_based_split(
+            dataset,
+            train_end=train_end,
+            val_end=val_end,
+        )
+
+    else:
+        raise ValueError("split_method must be either 'ratio' or 'date'.")
 
     y_cols = list(Y.columns)
 
@@ -112,25 +138,38 @@ def run_profile_training_experiment(
         models = get_profile_nan_friendly_models(random_state=RANDOM_STATE)
 
     else:
-        raise ValueError("data_mode must be one of: 'auto', 'dense', 'NaNs'")
+        raise ValueError("data_mode must be one of: 'auto', 'dense', 'NaNs'.")
 
     if selected_models is not None:
         models = {k: v for k, v in models.items() if k in selected_models}
 
     if not models:
-        raise ValueError("No models selected after filtering.")
+        raise ValueError(
+            "No models selected after filtering. "
+            "Check selected_models and available profile model names."
+        )
 
     if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:
         raise ValueError(
             "One of train/val/test sets is empty after preprocessing. "
-            "Check split ratios, issue time filtering, and NaN handling."
+            "Check date split, issue time filtering, horizon_steps, and NaN handling."
         )
+
+    print("Profile forecasting split summary:")
+    print(f"Train: {X_train.index.min()} -> {X_train.index.max()} | rows: {len(X_train)}")
+    print(f"Val:   {X_val.index.min()} -> {X_val.index.max()} | rows: {len(X_val)}")
+    print(f"Test:  {X_test.index.min()} -> {X_test.index.max()} | rows: {len(X_test)}")
+    print(f"Data mode: {data_mode}")
+    print(f"Horizon steps: {horizon_steps}")
 
     results = []
     horizon_results: dict[str, pd.DataFrame] = {}
 
     for model_name, model in models.items():
-        print(f"Training {model_name} for day-ahead profile forecasting: {target_col} [{data_mode}]")
+        print(
+            f"Training {model_name} for day-ahead profile forecasting: "
+            f"{target_col} [{data_mode}]"
+        )
 
         run_id = generate_run_id()
         start_time = datetime.now()
@@ -207,6 +246,9 @@ def run_profile_training_experiment(
             "val_end": str(X_val.index.max()),
             "test_start": str(X_test.index.min()),
             "test_end": str(X_test.index.max()),
+            "split_method": split_method,
+            "split_train_end_requested": str(train_end),
+            "split_val_end_requested": str(val_end),
             "val_MAE": val_global["MAE"],
             "val_RMSE": val_global["RMSE"],
             "val_MAPE": val_global["MAPE"],
