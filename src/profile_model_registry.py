@@ -27,9 +27,9 @@ def get_profile_dense_models(random_state: int = 42) -> dict[str, object]:
         ),
         "random_forest": MultiOutputRegressor(
             RandomForestRegressor(
-                n_estimators=300,
+                n_estimators=600,
                 max_depth=20,
-                min_samples_split=10,
+                min_samples_split=2,
                 min_samples_leaf=4,
                 random_state=random_state,
                 n_jobs=-1,

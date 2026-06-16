@@ -11,17 +11,7 @@ def add_day_ahead_history_features(
     freq_minutes: int = 30,
     min_history: int = 3,
 ) -> pd.DataFrame:
-    """
-    Add past-only historical pattern features for day-ahead/profile forecasting.
 
-    Features created:
-    - target slot historical mean / p75 / p90
-    - target day-of-week + slot historical mean / p75 / p90
-    - same-slot last 4 weeks mean / max / p90
-
-    Important:
-    These features are calculated using only past data, so they avoid leakage.
-    """
 
     out = df.copy().sort_index()
 
@@ -134,6 +124,61 @@ def add_day_ahead_history_features(
 
     return out
 
+def add_future_exogenous_profile_features(
+    df: pd.DataFrame,
+    *,
+    exog_cols: list[str],
+    horizon_steps: int,
+    prefix: str = "tplus",
+) -> pd.DataFrame:
+    """
+    Add future exogenous profile features.
+
+    Example for 30-minute resolution and horizon_steps=48:
+        PV_WS_Radiation_tplus_001 = radiation at t+30min
+        PV_WS_Radiation_tplus_002 = radiation at t+60min
+        ...
+        PV_WS_Radiation_tplus_048 = radiation at t+24h
+
+    Important:
+    If these values come from measured sensor data, this is an oracle experiment.
+    For real EMS operation, these columns should come from a weather forecast.
+    """
+    out = df.copy().sort_index()
+
+    if not isinstance(out.index, pd.DatetimeIndex):
+        raise TypeError("df must have a DatetimeIndex.")
+
+    missing_cols = [c for c in exog_cols if c not in out.columns]
+    if missing_cols:
+        raise ValueError(f"Missing exogenous columns in dataframe: {missing_cols}")
+
+    for col in exog_cols:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+        for step in range(1, horizon_steps + 1):
+            new_col = f"{col}_{prefix}_{step:03d}"
+            out[new_col] = out[col].shift(-step)
+
+    return out
+
+
+def get_future_exogenous_profile_feature_columns(
+    *,
+    exog_cols: list[str],
+    horizon_steps: int,
+    prefix: str = "tplus",
+) -> list[str]:
+    """
+    Return feature names created by add_future_exogenous_profile_features().
+    """
+    cols = []
+
+    for col in exog_cols:
+        for step in range(1, horizon_steps + 1):
+            cols.append(f"{col}_{prefix}_{step:03d}")
+
+    return cols
 
 def get_day_ahead_history_feature_columns(target_col: str) -> list[str]:
     """
@@ -158,24 +203,6 @@ def add_lag_imputation_flags(
     target_col: str,
     lags: list[int],
 ) -> pd.DataFrame:
-    """
-    Add lagged imputation flags.
-
-    Example:
-    If target_col = BU_TotActPwr_Academy and lag = 48,
-    this creates:
-    BU_TotActPwr_Academy_lag_48_was_imputed
-
-    For 30-minute data:
-    - lag 48 = same time yesterday
-    - lag 96 = same time two days ago
-    - lag 336 = same time last week
-
-    For 15-minute data:
-    - lag 96 = same time yesterday
-    - lag 192 = same time two days ago
-    - lag 672 = same time last week
-    """
 
     out = df.copy().sort_index()
 
